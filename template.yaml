@@ -1,0 +1,1071 @@
+Resources:
+  ProductsTable241ADBFF:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: category-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TableName: Products
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsTable/Resource
+  GetProductServiceRole1936696A:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ProductApiStack/GetProduct/ServiceRole/Resource
+  GetProductServiceRoleDefaultPolicy5CA15324:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:Query
+              - dynamodb:Scan
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ProductsTable241ADBFF
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ProductsTable241ADBFF
+                        - Arn
+                    - /index/*
+        Version: "2012-10-17"
+      PolicyName: GetProductServiceRoleDefaultPolicy5CA15324
+      Roles:
+        - Ref: GetProductServiceRole1936696A
+    Metadata:
+      aws:cdk:path: ProductApiStack/GetProduct/ServiceRole/DefaultPolicy/Resource
+  GetProductB1843B98:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a.zip
+      Environment:
+        Variables:
+          PRODUCTS_TABLE_NAME:
+            Ref: ProductsTable241ADBFF
+      Handler: get_product.handler
+      Role:
+        Fn::GetAtt:
+          - GetProductServiceRole1936696A
+          - Arn
+      Runtime: python3.13
+    DependsOn:
+      - GetProductServiceRoleDefaultPolicy5CA15324
+      - GetProductServiceRole1936696A
+    Metadata:
+      aws:cdk:path: ProductApiStack/GetProduct/Resource
+      aws:asset:path: asset.bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  GetProductLogGroupBBEA82E9:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: GetProductB1843B98
+      RetentionInDays: 731
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/GetProduct/LogGroup/Resource
+  QueryProductsServiceRoleD77CF1D6:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ProductApiStack/QueryProducts/ServiceRole/Resource
+  QueryProductsServiceRoleDefaultPolicyCCDE31BC:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:Query
+              - dynamodb:Scan
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ProductsTable241ADBFF
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ProductsTable241ADBFF
+                        - Arn
+                    - /index/*
+        Version: "2012-10-17"
+      PolicyName: QueryProductsServiceRoleDefaultPolicyCCDE31BC
+      Roles:
+        - Ref: QueryProductsServiceRoleD77CF1D6
+    Metadata:
+      aws:cdk:path: ProductApiStack/QueryProducts/ServiceRole/DefaultPolicy/Resource
+  QueryProducts92A22C2F:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a.zip
+      Environment:
+        Variables:
+          PRODUCTS_TABLE_NAME:
+            Ref: ProductsTable241ADBFF
+      Handler: query_products.handler
+      Role:
+        Fn::GetAtt:
+          - QueryProductsServiceRoleD77CF1D6
+          - Arn
+      Runtime: python3.13
+    DependsOn:
+      - QueryProductsServiceRoleDefaultPolicyCCDE31BC
+      - QueryProductsServiceRoleD77CF1D6
+    Metadata:
+      aws:cdk:path: ProductApiStack/QueryProducts/Resource
+      aws:asset:path: asset.bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  QueryProductsLogGroup1A3034F5:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: QueryProducts92A22C2F
+      RetentionInDays: 731
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/QueryProducts/LogGroup/Resource
+  InsertProductServiceRole5EB83926:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ProductApiStack/InsertProduct/ServiceRole/Resource
+  InsertProductServiceRoleDefaultPolicy35773E68:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DeleteItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ProductsTable241ADBFF
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ProductsTable241ADBFF
+                        - Arn
+                    - /index/*
+        Version: "2012-10-17"
+      PolicyName: InsertProductServiceRoleDefaultPolicy35773E68
+      Roles:
+        - Ref: InsertProductServiceRole5EB83926
+    Metadata:
+      aws:cdk:path: ProductApiStack/InsertProduct/ServiceRole/DefaultPolicy/Resource
+  InsertProduct0DF3D99C:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a.zip
+      Environment:
+        Variables:
+          PRODUCTS_TABLE_NAME:
+            Ref: ProductsTable241ADBFF
+      Handler: insert_product.handler
+      Role:
+        Fn::GetAtt:
+          - InsertProductServiceRole5EB83926
+          - Arn
+      Runtime: python3.13
+    DependsOn:
+      - InsertProductServiceRoleDefaultPolicy35773E68
+      - InsertProductServiceRole5EB83926
+    Metadata:
+      aws:cdk:path: ProductApiStack/InsertProduct/Resource
+      aws:asset:path: asset.bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  InsertProductLogGroup6A296243:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: InsertProduct0DF3D99C
+      RetentionInDays: 731
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/InsertProduct/LogGroup/Resource
+  UpdateProductServiceRole64AC773A:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ProductApiStack/UpdateProduct/ServiceRole/Resource
+  UpdateProductServiceRoleDefaultPolicy6930D8F6:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DeleteItem
+              - dynamodb:DescribeTable
+              - dynamodb:GetItem
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - ProductsTable241ADBFF
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - ProductsTable241ADBFF
+                        - Arn
+                    - /index/*
+        Version: "2012-10-17"
+      PolicyName: UpdateProductServiceRoleDefaultPolicy6930D8F6
+      Roles:
+        - Ref: UpdateProductServiceRole64AC773A
+    Metadata:
+      aws:cdk:path: ProductApiStack/UpdateProduct/ServiceRole/DefaultPolicy/Resource
+  UpdateProduct20A0C881:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a.zip
+      Environment:
+        Variables:
+          PRODUCTS_TABLE_NAME:
+            Ref: ProductsTable241ADBFF
+      Handler: update_product.handler
+      Role:
+        Fn::GetAtt:
+          - UpdateProductServiceRole64AC773A
+          - Arn
+      Runtime: python3.13
+    DependsOn:
+      - UpdateProductServiceRoleDefaultPolicy6930D8F6
+      - UpdateProductServiceRole64AC773A
+    Metadata:
+      aws:cdk:path: ProductApiStack/UpdateProduct/Resource
+      aws:asset:path: asset.bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  UpdateProductLogGroup7549C63B:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: UpdateProduct20A0C881
+      RetentionInDays: 731
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/UpdateProduct/LogGroup/Resource
+  OptionsServiceRoleD547E5F2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Metadata:
+      aws:cdk:path: ProductApiStack/Options/ServiceRole/Resource
+  Options66AB347B:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket:
+          Fn::Sub: cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}
+        S3Key: bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a.zip
+      Handler: options.handler
+      Role:
+        Fn::GetAtt:
+          - OptionsServiceRoleD547E5F2
+          - Arn
+      Runtime: python3.13
+    DependsOn:
+      - OptionsServiceRoleD547E5F2
+    Metadata:
+      aws:cdk:path: ProductApiStack/Options/Resource
+      aws:asset:path: asset.bed383a0852d88ee948d31ea73af421e710927d969f32c267bdc355f24a1190a
+      aws:asset:is-bundled: false
+      aws:asset:property: Code
+  OptionsLogGroupF4E248B5:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - /aws/lambda/
+            - Ref: Options66AB347B
+      RetentionInDays: 731
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: ProductApiStack/Options/LogGroup/Resource
+  ProductsAPI63F140D0:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ProductsAPI
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Resource
+  ProductsAPIDeployment6846F2A77f47409054ac17b9f53db5fb376a525a:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      Description: Automatically created by the RestApi construct
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    DependsOn:
+      - ProductsAPIproductsidGET708AF44E
+      - ProductsAPIproductsidOPTIONS311A785B
+      - ProductsAPIproductsidPUTE0303859
+      - ProductsAPIproductsid3B20EBA5
+      - ProductsAPIproductsGETDF356BB7
+      - ProductsAPIproductsOPTIONSCF3A9D9B
+      - ProductsAPIproductsPOST34EDE762
+      - ProductsAPIproductsDFDB6098
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Deployment/Resource
+      aws:cdk:do-not-refactor: true
+  ProductsAPIDeploymentStagedev8E9CC706:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId:
+        Ref: ProductsAPIDeployment6846F2A77f47409054ac17b9f53db5fb376a525a
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+      StageName: dev
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/DeploymentStage.dev/Resource
+  ProductsAPIproductsDFDB6098:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Fn::GetAtt:
+          - ProductsAPI63F140D0
+          - RootResourceId
+      PathPart: products
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/Resource
+  ProductsAPIproductsGETApiPermissionProductApiStackProductsAPI3D72C3BAGETproductsC445F837:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - QueryProducts92A22C2F
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /GET/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/GET/ApiPermission.ProductApiStackProductsAPI3D72C3BA.GET..products
+  ProductsAPIproductsGETApiPermissionTestProductApiStackProductsAPI3D72C3BAGETproducts3AE03A57:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - QueryProducts92A22C2F
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/GET/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/GET/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.GET..products
+  ProductsAPIproductsGETDF356BB7:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - QueryProducts92A22C2F
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsDFDB6098
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/GET/Resource
+  ProductsAPIproductsPOSTApiPermissionProductApiStackProductsAPI3D72C3BAPOSTproducts98B0AC3C:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - InsertProduct0DF3D99C
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /POST/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/POST/ApiPermission.ProductApiStackProductsAPI3D72C3BA.POST..products
+  ProductsAPIproductsPOSTApiPermissionTestProductApiStackProductsAPI3D72C3BAPOSTproducts02C02161:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - InsertProduct0DF3D99C
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/POST/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/POST/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.POST..products
+  ProductsAPIproductsPOST34EDE762:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - InsertProduct0DF3D99C
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsDFDB6098
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/POST/Resource
+  ProductsAPIproductsOPTIONSApiPermissionProductApiStackProductsAPI3D72C3BAOPTIONSproductsE30B9007:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - Options66AB347B
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /OPTIONS/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/OPTIONS/ApiPermission.ProductApiStackProductsAPI3D72C3BA.OPTIONS..products
+  ProductsAPIproductsOPTIONSApiPermissionTestProductApiStackProductsAPI3D72C3BAOPTIONSproducts59F052E2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - Options66AB347B
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/OPTIONS/products
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/OPTIONS/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.OPTIONS..products
+  ProductsAPIproductsOPTIONSCF3A9D9B:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - Options66AB347B
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsDFDB6098
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/OPTIONS/Resource
+  ProductsAPIproductsid3B20EBA5:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId:
+        Ref: ProductsAPIproductsDFDB6098
+      PathPart: "{id}"
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/Resource
+  ProductsAPIproductsidGETApiPermissionProductApiStackProductsAPI3D72C3BAGETproductsid1DF91FDD:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - GetProductB1843B98
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /GET/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/GET/ApiPermission.ProductApiStackProductsAPI3D72C3BA.GET..products.{id}
+  ProductsAPIproductsidGETApiPermissionTestProductApiStackProductsAPI3D72C3BAGETproductsid8B8EBB6A:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - GetProductB1843B98
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/GET/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/GET/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.GET..products.{id}
+  ProductsAPIproductsidGET708AF44E:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - GetProductB1843B98
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsid3B20EBA5
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/GET/Resource
+  ProductsAPIproductsidPUTApiPermissionProductApiStackProductsAPI3D72C3BAPUTproductsid6D6FDAB9:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - UpdateProduct20A0C881
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /PUT/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/PUT/ApiPermission.ProductApiStackProductsAPI3D72C3BA.PUT..products.{id}
+  ProductsAPIproductsidPUTApiPermissionTestProductApiStackProductsAPI3D72C3BAPUTproductsidC2A4E372:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - UpdateProduct20A0C881
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/PUT/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/PUT/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.PUT..products.{id}
+  ProductsAPIproductsidPUTE0303859:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: PUT
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - UpdateProduct20A0C881
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsid3B20EBA5
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/PUT/Resource
+  ProductsAPIproductsidOPTIONSApiPermissionProductApiStackProductsAPI3D72C3BAOPTIONSproductsid63D34184:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - Options66AB347B
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /
+            - Ref: ProductsAPIDeploymentStagedev8E9CC706
+            - /OPTIONS/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/OPTIONS/ApiPermission.ProductApiStackProductsAPI3D72C3BA.OPTIONS..products.{id}
+  ProductsAPIproductsidOPTIONSApiPermissionTestProductApiStackProductsAPI3D72C3BAOPTIONSproductsidB0E8CE21:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+          - Options66AB347B
+          - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Join:
+          - ""
+          - - "arn:"
+            - Ref: AWS::Partition
+            - ":execute-api:"
+            - Ref: AWS::Region
+            - ":"
+            - Ref: AWS::AccountId
+            - ":"
+            - Ref: ProductsAPI63F140D0
+            - /test-invoke-stage/OPTIONS/products/*
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/OPTIONS/ApiPermission.Test.ProductApiStackProductsAPI3D72C3BA.OPTIONS..products.{id}
+  ProductsAPIproductsidOPTIONS311A785B:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - ":apigateway:"
+              - Ref: AWS::Region
+              - :lambda:path/2015-03-31/functions/
+              - Fn::GetAtt:
+                  - Options66AB347B
+                  - Arn
+              - /invocations
+      ResourceId:
+        Ref: ProductsAPIproductsid3B20EBA5
+      RestApiId:
+        Ref: ProductsAPI63F140D0
+    Metadata:
+      aws:cdk:path: ProductApiStack/ProductsAPI/Default/products/{id}/OPTIONS/Resource
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/+1WTW8TMRD9LfURuaa0IKTcEghVRUuXJBzQKoomttmYem3L9lJW1v53ZHt3k1KUUw8ccojWmXnz5lMeX5LL92/JxRk8unPKHs6l2JKw9EAfMDy6TWCtglqzLQkr2EpeBmTAeuGFVp95iyYBKag5mqBXCCPfmnhcog6jrZBSqOpOsygqpt83xXyxWcy/fpsvVxEb6b4Mth0OCBi7lnoLcsmpVgxse6MY/40mZUAinvbodbfGH36oFFKHJdRbBiR8ahSNgZUB0ew2BrUDxSS3/T/bKC+eOp2rX8JqVXPl0aRMqPxbR8CJCeViD9WN54LbWjgntOqwgJqEhU6zAc41NWezNBjGCkWFATmlVDfRfWLOmGgwTXx9sKgGBRVnhZaCCu5S2w9l7dSqofs5tZUuBhcZEW16rfdAdzdKCsVH3ZD0ceVx3lOCpwRPCY43cKTAWZXuliHylY6aZwk9FzO29OB5vJ7cQQ7/Ep/4j/KnfuRWdNhdbcA57h2Zxg92V2TW0AfuZ+D44RYYtwGWunIk3Orq2urGlAHJ/vhkSb+4MIU9eO0wGFGB54/QkrDgzk+NKANi3Ejd3ps4qy7OtfNQHbwe+mHMePwxoWNtkqmjVphxyjECI4Ylxz0ItYe7w8W50re6EhTkDXtS+P9fnoqxzwovY7HGKuaXQMr/ryomuwTGC+50YykfxmU9SvILcM9hwO8KsH4s3RHt0KVEhO+432lWBmR7yfAQ8d5kXS8QyvPKwkEL9TAJvc8Tw4swpP5kg67bdzz1P90jcTiEqiLsvvGm8R0uWr/T6vUVefOOXJz9dEKc929HssjfP29f95ljDAAA
+    Metadata:
+      aws:cdk:path: ProductApiStack/CDKMetadata/Default
+    Condition: CDKMetadataAvailable
+Outputs:
+  ProductsAPIEndpointEFF809AE:
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - Ref: ProductsAPI63F140D0
+          - .execute-api.
+          - Ref: AWS::Region
+          - "."
+          - Ref: AWS::URLSuffix
+          - /
+          - Ref: ProductsAPIDeploymentStagedev8E9CC706
+          - /
+  ProductsApiUrl:
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - Ref: ProductsAPI63F140D0
+          - .execute-api.
+          - Ref: AWS::Region
+          - "."
+          - Ref: AWS::URLSuffix
+          - /
+          - Ref: ProductsAPIDeploymentStagedev8E9CC706
+          - /
+Conditions:
+  CDKMetadataAvailable:
+    Fn::Or:
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - af-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-3
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-4
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-northwest-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-2
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - il-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - sa-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-1
+      - Fn::Equals:
+          - Ref: AWS::Region
+          - us-west-2
+Parameters:
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+

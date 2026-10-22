@@ -1,19 +1,34 @@
-from catalog import create_response, get_product
+from uuid import UUID
+import products_db
+from response_utils import create_success_response, create_error_response
 
 
 def handler(event, context):
     try:
-        product_id = (event.get("pathParameters") or {}).get("id")
+        # Get path parameters
+        path_parameters = event.get("pathParameters") or {}
+        product_id = path_parameters.get("id")
 
-        if not product_id:
-            return create_response(400, {"error": "Product ID required"})
+        # Validate that product ID was provided
+        if not product_id or not product_id.strip():
+            return create_error_response(400, "Product id is required")
 
-        product = get_product(product_id)
+        product_id = product_id.strip()
+
+        # Validate UUID format
+        try:
+            UUID(product_id)
+        except ValueError:
+            return create_error_response(400, "Invalid product id format")
+
+        # Get product from DynamoDB
+        product = products_db.get_product(product_id)
+
         if not product:
-            return create_response(404, {"error": "Product not found"})
+            return create_error_response(404, "Product not found")
 
-        return create_response(200, product)
+        return create_success_response(200, product)
 
     except Exception as e:
-        print(f"Error: {str(e)}")  # Log for debugging
-        return create_response(500, {"error": "Internal server error"})
+        print(f"Unexpected error: {str(e)}")
+        return create_error_response(500, "Internal server error")

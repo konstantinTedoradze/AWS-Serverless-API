@@ -1,0 +1,10 @@
+{
+  "body": "{\"title\":\"Wireless Headphones\",\"category\":\"Electronics\",\"description\":\"Bluetooth headphones for daily use\",\"price\":199.99}",
+  "httpMethod": "POST",
+  "path": "/dev/products",
+  "requestContext": {
+    "identity": {
+      "userArn": "manual-test"
+    }
+  }
+}
