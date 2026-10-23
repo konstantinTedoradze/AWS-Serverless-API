@@ -73,7 +73,18 @@ class TestGetProduct(unittest.TestCase):
         body = json.loads(response['body'])
 
         self.assertIn('error', body)
-        self.assertIn('Product not found', body['error'])
+        self.assertEqual(
+            body['error']['type'],
+            'product_not_found'
+        )
+        self.assertIn(
+            'is not available',
+            body['error']['message']
+        )
+        self.assertIn(
+            'suggestions',
+            body['error']
+        )
 
     def test_missing_path_parameters(self):
         """Test handling of malformed requests."""

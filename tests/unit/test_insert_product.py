@@ -66,7 +66,18 @@ class TestInsertProduct(unittest.TestCase):
 
         body = json.loads(response['body'])
 
-        self.assertIn('validation_errors', body)
+        self.assertIn('error', body)
+        self.assertEqual(
+            body['error']['type'],
+            'validation_error'
+        )
+        self.assertEqual(
+            body['error']['message'],
+            'Product data validation failed'
+        )
+        self.assertIn('details', body['error'])
+        self.assertTrue(body['error']['details'])
+        self.assertIn('suggestions', body['error'])
 
         # Verify database was not called with invalid data
         mock_insert_product.assert_not_called()

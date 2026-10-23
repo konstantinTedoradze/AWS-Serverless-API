@@ -3,6 +3,7 @@ from lambda_code import products_db
 from lambda_code.response_utils import (
     create_success_response,
     create_error_response,
+    ContextualErrorHandler
 )
 
 def handler(event, context):
@@ -27,8 +28,9 @@ def handler(event, context):
         product = products_db.get_product(product_id)
 
         if not product:
-            return create_error_response(404, "Product not found")
-
+            error_handler = ContextualErrorHandler()
+            return error_handler.handle_product_not_found(product_id)
+        
         return create_success_response(200, product)
 
     except Exception as e:
