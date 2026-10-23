@@ -1,8 +1,11 @@
 import json
 import uuid
-import products_db
-from response_utils import create_success_response, create_error_response
-from product_schema import ProductInput
+from lambda_code import products_db
+from lambda_code.response_utils import (
+    create_success_response,
+    create_error_response,
+)
+from lambda_code.product_schema import ProductInput
 from pydantic import ValidationError
 
 def handler(event, context):
@@ -38,10 +41,17 @@ def handler(event, context):
     except json.JSONDecodeError as e:
         return create_error_response(400, f'Invalid JSON: {str(e)}')
     except ValidationError as e:
-        # Pydantic validation errors provide detailed field-level feedback
-        errors = e.errors()
-        error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in errors]
-        return create_error_response(400, f'Validation failed: {", ".join(error_messages)}')
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({
+                'error': 'Product validation failed',
+                'validation_errors': e.errors()
+            }, default=str)
+        }
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         return create_error_response(500, f'Internal server error - {str(e)}')

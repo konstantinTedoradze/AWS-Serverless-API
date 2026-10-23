@@ -1,7 +1,9 @@
 from uuid import UUID
-import products_db
-from response_utils import create_success_response, create_error_response
-
+from lambda_code import products_db
+from lambda_code.response_utils import (
+    create_success_response,
+    create_error_response,
+)
 
 def handler(event, context):
     try:
@@ -11,7 +13,7 @@ def handler(event, context):
 
         # Validate that product ID was provided
         if not product_id or not product_id.strip():
-            return create_error_response(400, "Product id is required")
+            return create_error_response(400, "Product ID required")
 
         product_id = product_id.strip()
 
