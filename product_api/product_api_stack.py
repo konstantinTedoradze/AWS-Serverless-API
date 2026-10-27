@@ -9,6 +9,8 @@ from aws_cdk import (
     aws_sqs as aws_sqs,
     aws_s3 as aws_s3,
     aws_s3_notifications as aws_s3_notifications,
+    aws_ec2 as aws_ec2,
+    aws_elasticache as aws_elasticache,
 )
 from constructs import Construct
 
@@ -22,7 +24,75 @@ class ProductApiStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # 1. Create a dead-letter queue
+        # 1. Create VPC for Lambda and ElastiCache
+        vpc = aws_ec2.Vpc(
+            self,
+            "ProductApiVpc",
+            max_azs=2,
+            nat_gateways=1,
+        )
+
+        # 2. Create security group for Valkey
+        valkey_security_group = aws_ec2.SecurityGroup(
+            self,
+            "ValkeySecurityGroup",
+            vpc=vpc,
+            description="Security group for Valkey ElastiCache",
+            allow_all_outbound=True,
+        )
+
+        # 3. Create security group for Lambda
+        lambda_security_group = aws_ec2.SecurityGroup(
+            self,
+            "LambdaSecurityGroup",
+            vpc=vpc,
+            description="Security group for Lambda functions",
+            allow_all_outbound=True,
+        )
+
+        # 4. Allow Lambda to connect to Valkey on port 6379
+        valkey_security_group.add_ingress_rule(
+            lambda_security_group,
+            aws_ec2.Port.tcp(6379),
+            "Allow Lambda to access Valkey",
+        )
+
+        # 5. Create a subnet group for Valkey
+        valkey_subnet_group = aws_elasticache.CfnSubnetGroup(
+            self,
+            "ValkeySubnetGroup",
+            description="Private subnets for the Product API Valkey cache",
+            subnet_ids=[
+                subnet.subnet_id
+                for subnet in vpc.private_subnets
+            ],
+        )
+
+        # 6. Create a single-node Valkey replication group
+        # Valkey uses CfnReplicationGroup, not CfnCacheCluster.
+        valkey_cluster = aws_elasticache.CfnReplicationGroup(
+            self,
+            "ValkeyReplicationGroup",
+            replication_group_id="online-store-valkey-cache",
+            replication_group_description=(
+                "Valkey cache for the online store Product API"
+            ),
+            engine="valkey",
+            cache_node_type="cache.t3.micro",
+            num_cache_clusters=1,
+            port=6379,
+            cache_subnet_group_name=valkey_subnet_group.ref,
+            security_group_ids=[
+                valkey_security_group.security_group_id
+            ],
+            at_rest_encryption_enabled=True,
+            transit_encryption_enabled=True,
+        )
+
+        # Ensure the subnet group exists before Valkey is created
+        valkey_cluster.add_dependency(valkey_subnet_group)
+
+        # 7. Create a dead-letter queue
         dlq = aws_sqs.Queue(
             self,
             "ProductApiDlq",
@@ -32,7 +102,7 @@ class ProductApiStack(Stack):
             receive_message_wait_time=Duration.seconds(20),
         )
 
-        # 2. Create the DynamoDB table
+        # 8. Create the DynamoDB table
         products_table = aws_dynamodb.Table(
             self,
             "ProductsTable",
@@ -44,7 +114,7 @@ class ProductApiStack(Stack):
             billing_mode=aws_dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
-        # 3. Add a Global Secondary Index
+        # 9. Add a Global Secondary Index
         products_table.add_global_secondary_index(
             index_name="category-index",
             partition_key=aws_dynamodb.Attribute(
@@ -53,7 +123,7 @@ class ProductApiStack(Stack):
             ),
         )
 
-        # 4. Create S3 bucket for product images
+        # 10. Create S3 bucket for product images
         product_images_bucket = aws_s3.Bucket(
             self,
             "ProductImagesBucket",
@@ -64,7 +134,7 @@ class ProductApiStack(Stack):
             auto_delete_objects=False,
         )
 
-        # 5. Configure Lambda functions
+        # 11. Configure Lambda functions
         lambda_runtime = aws_lambda.Runtime.PYTHON_3_13
         code_location = "lambda_code"
 
@@ -94,12 +164,15 @@ class ProductApiStack(Stack):
             handler="process_product_image.handler",
             code=aws_lambda.Code.from_asset(code_location),
             environment={
-                "PRODUCT_IMAGES_BUCKET": product_images_bucket.bucket_name,
+                "PRODUCT_IMAGES_BUCKET": (
+                    product_images_bucket.bucket_name
+                ),
                 "PRODUCTS_TABLE_NAME": products_table.table_name,
             },
         )
 
         # Get one product by ID
+        # This Lambda needs VPC access to connect to Valkey
         self.get_product = aws_lambda.Function(
             self,
             "GetProduct",
@@ -107,6 +180,11 @@ class ProductApiStack(Stack):
             handler="get_product.handler",
             code=aws_lambda.Code.from_asset(code_location),
             dead_letter_queue=dlq,
+            vpc=vpc,
+            security_groups=[lambda_security_group],
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            ),
         )
 
         # Query products
@@ -148,7 +226,9 @@ class ProductApiStack(Stack):
             code=aws_lambda.Code.from_asset(code_location),
             environment={
                 "PRODUCT_TABLE": products_table.table_name,
-                "PRODUCT_IMAGES_BUCKET": product_images_bucket.bucket_name,
+                "PRODUCT_IMAGES_BUCKET": (
+                    product_images_bucket.bucket_name
+                ),
             },
         )
 
@@ -161,7 +241,7 @@ class ProductApiStack(Stack):
             code=aws_lambda.Code.from_asset(code_location),
         )
 
-        # 6. Configure DynamoDB environment variables
+        # 12. Configure DynamoDB environment variables
         for function in [
             self.get_product,
             self.query_products,
@@ -173,7 +253,7 @@ class ProductApiStack(Stack):
                 products_table.table_name,
             )
 
-        # 7. Configure S3 environment variables
+        # 13. Configure S3 environment variables
         for function in [
             self.get_product,
             self.insert_product,
@@ -186,7 +266,21 @@ class ProductApiStack(Stack):
                 product_images_bucket.bucket_name,
             )
 
-        # 8. Grant DynamoDB permissions
+        # 14. Configure Valkey connection for get_product
+        self.get_product.add_environment(
+            "VALKEY_HOST",
+            valkey_cluster.attr_primary_end_point_address,
+        )
+        self.get_product.add_environment(
+            "VALKEY_PORT",
+            valkey_cluster.attr_primary_end_point_port,
+        )
+        self.get_product.add_environment(
+            "VALKEY_TLS",
+            "true",
+        )
+
+        # 15. Grant DynamoDB permissions
         products_table.grant_read_data(self.get_product)
         products_table.grant_read_data(self.query_products)
 
@@ -199,9 +293,7 @@ class ProductApiStack(Stack):
         # Image processing Lambda updates product information
         products_table.grant_write_data(self.process_product_image)
 
-        # 9. Grant S3 permissions
-
-        # Existing product handlers
+        # 16. Grant S3 permissions
         product_images_bucket.grant_read(self.get_product)
         product_images_bucket.grant_read_write(self.insert_product)
         product_images_bucket.grant_read_write(self.update_product)
@@ -212,14 +304,12 @@ class ProductApiStack(Stack):
         # Download Lambda: permission to inspect and read objects
         product_images_bucket.grant_read(self.get_product_image)
 
-        # Image processing Lambda:
-        # read original images and write thumbnails/processed images
+        # Image processing Lambda: read and write objects
         product_images_bucket.grant_read_write(
             self.process_product_image
         )
 
-        # 10. Configure S3 event notification
-        #
+        # 17. Configure S3 event notification
         # When a .jpg file is created under products/,
         # invoke ProcessProductImage Lambda.
         product_images_bucket.add_event_notification(
@@ -233,7 +323,7 @@ class ProductApiStack(Stack):
             ),
         )
 
-        # 11. Configure API Gateway
+        # 18. Configure API Gateway
         api = apigw.RestApi(
             self,
             "ProductsAPI",
@@ -283,21 +373,18 @@ class ProductApiStack(Stack):
         image = product_by_id.add_resource("image")
 
         # POST /products/{id}/image
-        # Generate a presigned upload URL
         image.add_method(
             "POST",
             apigw.LambdaIntegration(self.upload_product_image),
         )
 
         # GET /products/{id}/image
-        # Generate a presigned download URL
         image.add_method(
             "GET",
             apigw.LambdaIntegration(self.get_product_image),
         )
 
         # PUT /products/{id}/image
-        # Save the uploaded image key to DynamoDB
         image.add_method(
             "PUT",
             apigw.LambdaIntegration(self.update_product_images),
@@ -308,16 +395,29 @@ class ProductApiStack(Stack):
             apigw.LambdaIntegration(self.options),
         )
 
-        # 12. Output the API URL
+        # 19. Outputs
         CfnOutput(
             self,
             "ProductsApiUrl",
             value=api.url,
         )
 
-        # 13. Output the S3 bucket name
         CfnOutput(
             self,
             "ProductImagesBucketName",
             value=product_images_bucket.bucket_name,
+        )
+
+        CfnOutput(
+            self,
+            "ValkeyClusterEndpoint",
+            value=valkey_cluster.attr_primary_end_point_address,
+            description="Valkey primary endpoint",
+        )
+
+        CfnOutput(
+            self,
+            "ValkeyClusterPort",
+            value=valkey_cluster.attr_primary_end_point_port,
+            description="Valkey cluster port",
         )
