@@ -14,7 +14,6 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-
 class ProductApiStack(Stack):
     def __init__(
         self,
@@ -138,6 +137,25 @@ class ProductApiStack(Stack):
         lambda_runtime = aws_lambda.Runtime.PYTHON_3_13
         code_location = "lambda_code"
 
+        # Shared Lambda Layer containing the Redis/Valkey Python client
+        redis_layer = aws_lambda.LayerVersion(
+            self,
+            "RedisLayer",
+            code=aws_lambda.Code.from_asset("layers/redis"),
+            compatible_runtimes=[lambda_runtime],
+            description="Redis Python client for Valkey integration",
+        )
+
+        # Shared Valkey configuration for cache-enabled Lambdas
+        valkey_environment = {
+            "VALKEY_HOST": valkey_cluster.attr_primary_end_point_address,
+            "VALKEY_PORT": valkey_cluster.attr_primary_end_point_port,
+            "VALKEY_TLS": "true",
+            "PRODUCT_CACHE_TTL": "3600",
+            "SEARCH_CACHE_TTL": "1800",
+            "CATEGORY_CACHE_TTL": "7200",
+        }
+
         # Generate presigned URLs for image uploads
         self.upload_product_image = aws_lambda.Function(
             self,
@@ -185,6 +203,8 @@ class ProductApiStack(Stack):
             vpc_subnets=aws_ec2.SubnetSelection(
                 subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
             ),
+            layers=[redis_layer],
+            environment=valkey_environment,
         )
 
         # Query products
@@ -195,6 +215,13 @@ class ProductApiStack(Stack):
             handler="query_products.handler",
             code=aws_lambda.Code.from_asset(code_location),
             dead_letter_queue=dlq,
+            vpc=vpc,
+            security_groups=[lambda_security_group],
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            ),
+            layers=[redis_layer],
+            environment=valkey_environment,
         )
 
         # Create a product
@@ -205,6 +232,13 @@ class ProductApiStack(Stack):
             handler="insert_product.handler",
             code=aws_lambda.Code.from_asset(code_location),
             dead_letter_queue=dlq,
+            vpc=vpc,
+            security_groups=[lambda_security_group],
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            ),
+            layers=[redis_layer],
+            environment=valkey_environment,
         )
 
         # Update a product
@@ -215,6 +249,13 @@ class ProductApiStack(Stack):
             handler="update_product.handler",
             code=aws_lambda.Code.from_asset(code_location),
             dead_letter_queue=dlq,
+            vpc=vpc,
+            security_groups=[lambda_security_group],
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            ),
+            layers=[redis_layer],
+            environment=valkey_environment,
         )
 
         # Save an uploaded image key to the product in DynamoDB
@@ -265,20 +306,6 @@ class ProductApiStack(Stack):
                 "PRODUCT_IMAGES_BUCKET",
                 product_images_bucket.bucket_name,
             )
-
-        # 14. Configure Valkey connection for get_product
-        self.get_product.add_environment(
-            "VALKEY_HOST",
-            valkey_cluster.attr_primary_end_point_address,
-        )
-        self.get_product.add_environment(
-            "VALKEY_PORT",
-            valkey_cluster.attr_primary_end_point_port,
-        )
-        self.get_product.add_environment(
-            "VALKEY_TLS",
-            "true",
-        )
 
         # 15. Grant DynamoDB permissions
         products_table.grant_read_data(self.get_product)
