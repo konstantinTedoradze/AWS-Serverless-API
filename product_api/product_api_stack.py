@@ -1,3 +1,4 @@
+
 from aws_cdk import (
     CfnOutput,
     Stack,
@@ -11,10 +12,19 @@ from aws_cdk import (
     aws_s3_notifications as aws_s3_notifications,
     aws_ec2 as aws_ec2,
     aws_elasticache as aws_elasticache,
+    aws_lambda_event_sources as aws_lambda_event_sources,
+    aws_iam as aws_iam,
+    aws_events as events,
+    aws_events_targets as targets,
+    aws_sns as aws_sns,
+    aws_sns_subscriptions as aws_sns_subscriptions,
 )
+
 from constructs import Construct
 
+
 class ProductApiStack(Stack):
+
     def __init__(
         self,
         scope: Construct,
@@ -23,7 +33,10 @@ class ProductApiStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # 1. Create VPC for Lambda and ElastiCache
+        # --------------------------------------------------
+        # 1. VPC AND SECURITY GROUPS
+        # --------------------------------------------------
+
         vpc = aws_ec2.Vpc(
             self,
             "ProductApiVpc",
@@ -31,7 +44,6 @@ class ProductApiStack(Stack):
             nat_gateways=1,
         )
 
-        # 2. Create security group for Valkey
         valkey_security_group = aws_ec2.SecurityGroup(
             self,
             "ValkeySecurityGroup",
@@ -40,7 +52,6 @@ class ProductApiStack(Stack):
             allow_all_outbound=True,
         )
 
-        # 3. Create security group for Lambda
         lambda_security_group = aws_ec2.SecurityGroup(
             self,
             "LambdaSecurityGroup",
@@ -49,26 +60,27 @@ class ProductApiStack(Stack):
             allow_all_outbound=True,
         )
 
-        # 4. Allow Lambda to connect to Valkey on port 6379
+        # Allow Lambda to connect to Valkey
         valkey_security_group.add_ingress_rule(
             lambda_security_group,
             aws_ec2.Port.tcp(6379),
             "Allow Lambda to access Valkey",
         )
 
-        # 5. Create a subnet group for Valkey
+        # --------------------------------------------------
+        # 2. VALKEY SUBNET GROUP AND REPLICATION GROUP
+        # --------------------------------------------------
+
         valkey_subnet_group = aws_elasticache.CfnSubnetGroup(
             self,
             "ValkeySubnetGroup",
-            description="Private subnets for the Product API Valkey cache",
+            description="Private subnets for Product API Valkey",
             subnet_ids=[
                 subnet.subnet_id
                 for subnet in vpc.private_subnets
             ],
         )
 
-        # 6. Create a single-node Valkey replication group
-        # Valkey uses CfnReplicationGroup, not CfnCacheCluster.
         valkey_cluster = aws_elasticache.CfnReplicationGroup(
             self,
             "ValkeyReplicationGroup",
@@ -88,10 +100,12 @@ class ProductApiStack(Stack):
             transit_encryption_enabled=True,
         )
 
-        # Ensure the subnet group exists before Valkey is created
         valkey_cluster.add_dependency(valkey_subnet_group)
 
-        # 7. Create a dead-letter queue
+        # --------------------------------------------------
+        # 3. SQS QUEUES
+        # --------------------------------------------------
+
         dlq = aws_sqs.Queue(
             self,
             "ProductApiDlq",
@@ -101,7 +115,106 @@ class ProductApiStack(Stack):
             receive_message_wait_time=Duration.seconds(20),
         )
 
-        # 8. Create the DynamoDB table
+        order_processing_dlq = aws_sqs.Queue(
+            self,
+            "OrderProcessingDLQ",
+            queue_name="order-processing-dlq",
+            retention_period=Duration.days(14),
+            visibility_timeout=Duration.seconds(60),
+        )
+
+        order_processing_queue = aws_sqs.Queue(
+            self,
+            "OrderProcessingQueue",
+            queue_name="order-processing-queue",
+            # 6 times the 5-minute Lambda timeout
+            visibility_timeout=Duration.minutes(30),
+            retention_period=Duration.days(14),
+            receive_message_wait_time=Duration.seconds(20),
+            dead_letter_queue=aws_sqs.DeadLetterQueue(
+                max_receive_count=3,
+                queue=order_processing_dlq,
+            ),
+        )
+
+        # --------------------------------------------------
+        # 4. SNS TOPICS
+        # --------------------------------------------------
+
+        customer_notifications_topic = aws_sns.Topic(
+            self,
+            "CustomerNotificationsTopic",
+            topic_name="customer-notifications",
+            display_name="Customer Notifications",
+        )
+
+        system_alerts_topic = aws_sns.Topic(
+            self,
+            "SystemAlertsTopic",
+            topic_name="system-alerts",
+            display_name="System Alerts",
+        )
+
+        inventory_alerts_topic = aws_sns.Topic(
+            self,
+            "InventoryAlertsTopic",
+            topic_name="inventory-alerts",
+            display_name="Inventory Alerts",
+        )
+
+        # --------------------------------------------------
+        # 5. SNS SUBSCRIPTIONS AND FILTER POLICIES
+        # --------------------------------------------------
+
+        # Premium customer email subscription
+        premium_subscription = (
+            customer_notifications_topic.add_subscription(
+                aws_sns_subscriptions.EmailSubscription(
+                    "premium@example.com"
+                )
+            )
+        )
+
+        premium_subscription.subscription_filter_policy = {
+            "customer_tier": aws_sns.SubscriptionFilter.string_filter(
+                allowlist=["premium", "vip"]
+            )
+        }
+
+        # Express and same-day order SMS subscription
+        urgent_subscription = (
+            customer_notifications_topic.add_subscription(
+                aws_sns_subscriptions.SmsSubscription(
+                    "+1234567890"
+                )
+            )
+        )
+
+        urgent_subscription.subscription_filter_policy = {
+            "order_type": aws_sns.SubscriptionFilter.string_filter(
+                allowlist=["express", "same_day"]
+            )
+        }
+
+        # Inventory team receives critical inventory alerts only
+        inventory_subscription = (
+            inventory_alerts_topic.add_subscription(
+                aws_sns_subscriptions.EmailSubscription(
+                    "inventory-team@example.com"
+                )
+            )
+        )
+
+        inventory_subscription.subscription_filter_policy = {
+            "urgency": aws_sns.SubscriptionFilter.string_filter(
+                allowlist=["high"]
+            )
+        }
+
+        # --------------------------------------------------
+        # 6. DYNAMODB PRODUCTS TABLE
+        # --------------------------------------------------
+
         products_table = aws_dynamodb.Table(
             self,
             "ProductsTable",
@@ -113,7 +226,6 @@ class ProductApiStack(Stack):
             billing_mode=aws_dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
-        # 9. Add a Global Secondary Index
         products_table.add_global_secondary_index(
             index_name="category-index",
             partition_key=aws_dynamodb.Attribute(
@@ -122,7 +234,10 @@ class ProductApiStack(Stack):
             ),
         )
 
-        # 10. Create S3 bucket for product images
+        # --------------------------------------------------
+        # 7. S3 PRODUCT IMAGES BUCKET
+        # --------------------------------------------------
+
         product_images_bucket = aws_s3.Bucket(
             self,
             "ProductImagesBucket",
@@ -133,11 +248,13 @@ class ProductApiStack(Stack):
             auto_delete_objects=False,
         )
 
-        # 11. Configure Lambda functions
+        # --------------------------------------------------
+        # 8. LAMBDA CONFIGURATION
+        # --------------------------------------------------
+
         lambda_runtime = aws_lambda.Runtime.PYTHON_3_13
         code_location = "lambda_code"
 
-        # Shared Lambda Layer containing the Redis/Valkey Python client
         redis_layer = aws_lambda.LayerVersion(
             self,
             "RedisLayer",
@@ -146,17 +263,23 @@ class ProductApiStack(Stack):
             description="Redis Python client for Valkey integration",
         )
 
-        # Shared Valkey configuration for cache-enabled Lambdas
         valkey_environment = {
-            "VALKEY_HOST": valkey_cluster.attr_primary_end_point_address,
-            "VALKEY_PORT": valkey_cluster.attr_primary_end_point_port,
+            "VALKEY_HOST": (
+                valkey_cluster.attr_primary_end_point_address
+            ),
+            "VALKEY_PORT": (
+                valkey_cluster.attr_primary_end_point_port
+            ),
             "VALKEY_TLS": "true",
             "PRODUCT_CACHE_TTL": "3600",
             "SEARCH_CACHE_TTL": "1800",
             "CATEGORY_CACHE_TTL": "7200",
         }
 
-        # Generate presigned URLs for image uploads
+        # --------------------------------------------------
+        # 9. PRODUCT IMAGE LAMBDAS
+        # --------------------------------------------------
+
         self.upload_product_image = aws_lambda.Function(
             self,
             "UploadProductImage",
@@ -165,7 +288,6 @@ class ProductApiStack(Stack):
             code=aws_lambda.Code.from_asset(code_location),
         )
 
-        # Generate presigned URLs for image downloads
         self.get_product_image = aws_lambda.Function(
             self,
             "GetProductImage",
@@ -174,7 +296,6 @@ class ProductApiStack(Stack):
             code=aws_lambda.Code.from_asset(code_location),
         )
 
-        # Process product images after they are uploaded to S3
         self.process_product_image = aws_lambda.Function(
             self,
             "ProcessProductImage",
@@ -189,8 +310,10 @@ class ProductApiStack(Stack):
             },
         )
 
-        # Get one product by ID
-        # This Lambda needs VPC access to connect to Valkey
+        # --------------------------------------------------
+        # 10. PRODUCT API LAMBDAS
+        # --------------------------------------------------
+
         self.get_product = aws_lambda.Function(
             self,
             "GetProduct",
@@ -207,7 +330,6 @@ class ProductApiStack(Stack):
             environment=valkey_environment,
         )
 
-        # Query products
         self.query_products = aws_lambda.Function(
             self,
             "QueryProducts",
@@ -224,7 +346,6 @@ class ProductApiStack(Stack):
             environment=valkey_environment,
         )
 
-        # Create a product
         self.insert_product = aws_lambda.Function(
             self,
             "InsertProduct",
@@ -241,7 +362,6 @@ class ProductApiStack(Stack):
             environment=valkey_environment,
         )
 
-        # Update a product
         self.update_product = aws_lambda.Function(
             self,
             "UpdateProduct",
@@ -258,7 +378,6 @@ class ProductApiStack(Stack):
             environment=valkey_environment,
         )
 
-        # Save an uploaded image key to the product in DynamoDB
         self.update_product_images = aws_lambda.Function(
             self,
             "UpdateProductImages",
@@ -273,7 +392,6 @@ class ProductApiStack(Stack):
             },
         )
 
-        # Handle CORS preflight requests
         self.options = aws_lambda.Function(
             self,
             "Options",
@@ -282,7 +400,125 @@ class ProductApiStack(Stack):
             code=aws_lambda.Code.from_asset(code_location),
         )
 
-        # 12. Configure DynamoDB environment variables
+        # --------------------------------------------------
+        # 11. ORDER PROCESSOR LAMBDA
+        # --------------------------------------------------
+
+        self.order_processor = aws_lambda.Function(
+            self,
+            "OrderProcessor",
+            runtime=lambda_runtime,
+            handler="order_processor.handler",
+            code=aws_lambda.Code.from_asset(code_location),
+            timeout=Duration.seconds(300),
+            memory_size=512,
+            vpc=vpc,
+            security_groups=[lambda_security_group],
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS,
+            ),
+            layers=[redis_layer],
+            environment={
+                **valkey_environment,
+                "PRODUCTS_TABLE_NAME": products_table.table_name,
+                "CUSTOMER_NOTIFICATIONS_TOPIC_ARN": (
+                    customer_notifications_topic.topic_arn
+                ),
+                "SYSTEM_ALERTS_TOPIC_ARN": (
+                    system_alerts_topic.topic_arn
+                ),
+                "INVENTORY_ALERTS_TOPIC_ARN": (
+                    inventory_alerts_topic.topic_arn
+                ),
+            },
+        )
+
+        # Connect OrderProcessor to SQS
+        order_processing_queue.grant_consume_messages(
+            self.order_processor
+        )
+
+        self.order_processor.add_event_source(
+            aws_lambda_event_sources.SqsEventSource(
+                order_processing_queue,
+                batch_size=1,
+                report_batch_item_failures=False,
+            )
+        )
+
+        # --------------------------------------------------
+        # 12. QUEUE MONITOR LAMBDA
+        # --------------------------------------------------
+
+        self.queue_monitor = aws_lambda.Function(
+            self,
+            "QueueMonitor",
+            runtime=lambda_runtime,
+            handler="queue_monitor.handler",
+            code=aws_lambda.Code.from_asset(code_location),
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment={
+                "ORDER_PROCESSING_QUEUE_URL": (
+                    order_processing_queue.queue_url
+                ),
+            },
+        )
+
+        # --------------------------------------------------
+        # 13. INVENTORY MONITOR LAMBDA
+        # --------------------------------------------------
+
+        self.inventory_monitor = aws_lambda.Function(
+            self,
+            "InventoryMonitor",
+            runtime=lambda_runtime,
+            handler="inventory_monitor.inventory_monitor_handler",
+            code=aws_lambda.Code.from_asset(code_location),
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment={
+                "PRODUCTS_TABLE_NAME": products_table.table_name,
+                "INVENTORY_ALERTS_TOPIC_ARN": (
+                    inventory_alerts_topic.topic_arn
+                ),
+            },
+        )
+
+        # --------------------------------------------------
+        # 14. NOTIFICATION DISPATCHER LAMBDA
+        # --------------------------------------------------
+
+        self.notification_dispatcher = aws_lambda.Function(
+            self,
+            "NotificationDispatcher",
+            runtime=lambda_runtime,
+            handler=(
+                "notification_dispatcher."
+                "notification_dispatcher_handler"
+            ),
+            code=aws_lambda.Code.from_asset(code_location),
+            timeout=Duration.seconds(60),
+            memory_size=256,
+        )
+
+        # Subscribe dispatcher to system and inventory topics
+        system_alerts_topic.add_subscription(
+            aws_sns_subscriptions.LambdaSubscription(
+                self.notification_dispatcher
+            )
+        )
+
+        inventory_alerts_topic.add_subscription(
+            aws_sns_subscriptions.LambdaSubscription(
+                self.notification_dispatcher
+            )
+        )
+
+        # --------------------------------------------------
+        # 15. DYNAMODB ENVIRONMENT VARIABLES
+        # --------------------------------------------------
+
         for function in [
             self.get_product,
             self.query_products,
@@ -294,7 +530,10 @@ class ProductApiStack(Stack):
                 products_table.table_name,
             )
 
-        # 13. Configure S3 environment variables
+        # --------------------------------------------------
+        # 16. S3 ENVIRONMENT VARIABLES
+        # --------------------------------------------------
+
         for function in [
             self.get_product,
             self.insert_product,
@@ -307,38 +546,128 @@ class ProductApiStack(Stack):
                 product_images_bucket.bucket_name,
             )
 
-        # 15. Grant DynamoDB permissions
+        # --------------------------------------------------
+        # 17. DYNAMODB PERMISSIONS
+        # --------------------------------------------------
+
         products_table.grant_read_data(self.get_product)
         products_table.grant_read_data(self.query_products)
 
         products_table.grant_read_write_data(self.insert_product)
         products_table.grant_read_write_data(self.update_product)
 
-        # Image key update Lambda only needs DynamoDB write access
-        products_table.grant_write_data(self.update_product_images)
+        products_table.grant_write_data(
+            self.update_product_images
+        )
 
-        # Image processing Lambda updates product information
-        products_table.grant_write_data(self.process_product_image)
+        products_table.grant_write_data(
+            self.process_product_image
+        )
 
-        # 16. Grant S3 permissions
+        products_table.grant_read_write_data(
+            self.order_processor
+        )
+
+        products_table.grant_read_write_data(
+            self.inventory_monitor
+        )
+
+        # --------------------------------------------------
+        # 18. SNS PUBLISH PERMISSIONS
+        # --------------------------------------------------
+
+        customer_notifications_topic.grant_publish(
+            self.order_processor
+        )
+
+        system_alerts_topic.grant_publish(
+            self.order_processor
+        )
+
+        inventory_alerts_topic.grant_publish(
+            self.order_processor
+        )
+
+        inventory_alerts_topic.grant_publish(
+            self.inventory_monitor
+        )
+
+        # --------------------------------------------------
+        # 19. S3 PERMISSIONS
+        # --------------------------------------------------
+
         product_images_bucket.grant_read(self.get_product)
-        product_images_bucket.grant_read_write(self.insert_product)
-        product_images_bucket.grant_read_write(self.update_product)
 
-        # Upload Lambda: permission to upload objects
-        product_images_bucket.grant_put(self.upload_product_image)
+        product_images_bucket.grant_read_write(
+            self.insert_product
+        )
 
-        # Download Lambda: permission to inspect and read objects
-        product_images_bucket.grant_read(self.get_product_image)
+        product_images_bucket.grant_read_write(
+            self.update_product
+        )
 
-        # Image processing Lambda: read and write objects
+        product_images_bucket.grant_put(
+            self.upload_product_image
+        )
+
+        product_images_bucket.grant_read(
+            self.get_product_image
+        )
+
         product_images_bucket.grant_read_write(
             self.process_product_image
         )
 
-        # 17. Configure S3 event notification
-        # When a .jpg file is created under products/,
-        # invoke ProcessProductImage Lambda.
+        # --------------------------------------------------
+        # 20. QUEUE MONITOR PERMISSIONS
+        # --------------------------------------------------
+
+        order_processing_queue.grant(
+            self.queue_monitor,
+            "sqs:GetQueueAttributes",
+        )
+
+        self.queue_monitor.add_to_role_policy(
+            aws_iam.PolicyStatement(
+                actions=["cloudwatch:GetMetricStatistics"],
+                resources=["*"],
+            )
+        )
+
+        # --------------------------------------------------
+        # 21. EVENTBRIDGE SCHEDULES
+        # --------------------------------------------------
+
+        # Monitor order queue every 5 minutes
+        monitoring_schedule = events.Rule(
+            self,
+            "QueueMonitoringSchedule",
+            schedule=events.Schedule.rate(
+                Duration.minutes(5)
+            ),
+        )
+
+        monitoring_schedule.add_target(
+            targets.LambdaFunction(self.queue_monitor)
+        )
+
+        # Monitor inventory every 15 minutes
+        inventory_monitor_schedule = events.Rule(
+            self,
+            "InventoryMonitorSchedule",
+            schedule=events.Schedule.rate(
+                Duration.minutes(15)
+            ),
+        )
+
+        inventory_monitor_schedule.add_target(
+            targets.LambdaFunction(self.inventory_monitor)
+        )
+
+        # --------------------------------------------------
+        # 22. S3 EVENT NOTIFICATION
+        # --------------------------------------------------
+
         product_images_bucket.add_event_notification(
             aws_s3.EventType.OBJECT_CREATED,
             aws_s3_notifications.LambdaDestination(
@@ -350,11 +679,16 @@ class ProductApiStack(Stack):
             ),
         )
 
-        # 18. Configure API Gateway
+        # --------------------------------------------------
+        # 23. API GATEWAY
+        # --------------------------------------------------
+
         api = apigw.RestApi(
             self,
             "ProductsAPI",
-            deploy_options=apigw.StageOptions(stage_name="dev"),
+            deploy_options=apigw.StageOptions(
+                stage_name="dev"
+            ),
         )
 
         products = api.root.add_resource("products")
@@ -379,13 +713,11 @@ class ProductApiStack(Stack):
         # /products/{id}
         product_by_id = products.add_resource("{id}")
 
-        # GET /products/{id}
         product_by_id.add_method(
             "GET",
             apigw.LambdaIntegration(self.get_product),
         )
 
-        # PUT /products/{id}
         product_by_id.add_method(
             "PUT",
             apigw.LambdaIntegration(self.update_product),
@@ -399,19 +731,16 @@ class ProductApiStack(Stack):
         # /products/{id}/image
         image = product_by_id.add_resource("image")
 
-        # POST /products/{id}/image
         image.add_method(
             "POST",
             apigw.LambdaIntegration(self.upload_product_image),
         )
 
-        # GET /products/{id}/image
         image.add_method(
             "GET",
             apigw.LambdaIntegration(self.get_product_image),
         )
 
-        # PUT /products/{id}/image
         image.add_method(
             "PUT",
             apigw.LambdaIntegration(self.update_product_images),
@@ -422,7 +751,10 @@ class ProductApiStack(Stack):
             apigw.LambdaIntegration(self.options),
         )
 
-        # 19. Outputs
+        # --------------------------------------------------
+        # 24. CLOUDFORMATION OUTPUTS
+        # --------------------------------------------------
+
         CfnOutput(
             self,
             "ProductsApiUrl",
@@ -437,6 +769,20 @@ class ProductApiStack(Stack):
 
         CfnOutput(
             self,
+            "OrderProcessingQueueUrl",
+            value=order_processing_queue.queue_url,
+            description="SQS queue URL for background order processing",
+        )
+
+        CfnOutput(
+            self,
+            "OrderProcessingDlqUrl",
+            value=order_processing_dlq.queue_url,
+            description="SQS dead-letter queue URL",
+        )
+
+        CfnOutput(
+            self,
             "ValkeyClusterEndpoint",
             value=valkey_cluster.attr_primary_end_point_address,
             description="Valkey primary endpoint",
@@ -446,5 +792,5 @@ class ProductApiStack(Stack):
             self,
             "ValkeyClusterPort",
             value=valkey_cluster.attr_primary_end_point_port,
-            description="Valkey cluster port",
+            description="Valkey primary endpoint port",
         )
