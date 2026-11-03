@@ -1,4 +1,3 @@
-
 import json
 import logging
 import os
@@ -7,6 +6,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from activity_service import send_customer_activity
 from notification_service import send_order_confirmation
 
 logger = logging.getLogger()
@@ -65,6 +65,9 @@ def handler(
             # Publish customer confirmation after successful processing.
             publish_order_confirmation(order_data)
 
+            # Publish customer activity analytics event.
+            publish_customer_activity(order_data)
+
         except Exception:
             logger.exception(
                 "Failed to process SQS message: %s",
@@ -114,6 +117,38 @@ def publish_order_confirmation(
     except Exception:
         logger.exception(
             "Failed to publish confirmation for order %s",
+            order_data.get("order_id", "unknown"),
+        )
+
+
+def publish_customer_activity(
+    order_data: dict[str, Any],
+) -> None:
+    """
+    Publish an order activity event to Kinesis Data Firehose.
+
+    Firehose failures are logged separately so that an already-
+    processed order is not retried only because analytics
+    publishing failed.
+    """
+
+    try:
+        send_customer_activity(
+            event_type="order_completed",
+            user_id=str(order_data["user_id"]),
+            session_id=order_data.get("session_id"),
+            order_id=str(order_data["order_id"]),
+            total_amount=float(order_data["total_amount"]),
+        )
+
+        logger.info(
+            "Customer activity published for order %s",
+            order_data["order_id"],
+        )
+
+    except Exception:
+        logger.exception(
+            "Failed to publish customer activity for order %s",
             order_data.get("order_id", "unknown"),
         )
 

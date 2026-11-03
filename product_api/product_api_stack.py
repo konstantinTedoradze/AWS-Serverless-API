@@ -1,4 +1,3 @@
-
 from aws_cdk import (
     CfnOutput,
     Stack,
@@ -18,6 +17,7 @@ from aws_cdk import (
     aws_events_targets as targets,
     aws_sns as aws_sns,
     aws_sns_subscriptions as aws_sns_subscriptions,
+    aws_kinesisfirehose as firehose,
 )
 
 from constructs import Construct
@@ -235,7 +235,7 @@ class ProductApiStack(Stack):
         )
 
         # --------------------------------------------------
-        # 7. S3 PRODUCT IMAGES BUCKET
+        # 7. S3 PRODUCT IMAGES AND CUSTOMER ACTIVITY BUCKETS
         # --------------------------------------------------
 
         product_images_bucket = aws_s3.Bucket(
@@ -246,6 +246,56 @@ class ProductApiStack(Stack):
             encryption=aws_s3.BucketEncryption.S3_MANAGED,
             removal_policy=RemovalPolicy.RETAIN,
             auto_delete_objects=False,
+        )
+
+        # Bucket used by Kinesis Data Firehose
+        # to store customer activity events.
+        customer_activity_bucket = aws_s3.Bucket(
+            self,
+            "CustomerActivityBucket",
+            versioned=True,
+            block_public_access=aws_s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=aws_s3.BucketEncryption.S3_MANAGED,
+            removal_policy=RemovalPolicy.RETAIN,
+            auto_delete_objects=False,
+        )
+
+        # Firehose assumes this role to write data to S3.
+        firehose_role = aws_iam.Role(
+            self,
+            "CustomerActivityFirehoseRole",
+            assumed_by=aws_iam.ServicePrincipal(
+                "firehose.amazonaws.com"
+            ),
+        )
+
+        customer_activity_bucket.grant_read_write(
+            firehose_role
+        )
+
+        # Kinesis Data Firehose delivery stream.
+        #
+        # DirectPut means application code sends records
+        # directly to Firehose using PutRecord/PutRecordBatch.
+        customer_activity_stream = firehose.CfnDeliveryStream(
+            self,
+            "CustomerActivityStream",
+            delivery_stream_name="customer-activity-stream",
+            delivery_stream_type="DirectPut",
+            s3_destination_configuration=(
+                firehose.CfnDeliveryStream.S3DestinationConfigurationProperty(
+                    bucket_arn=customer_activity_bucket.bucket_arn,
+                    role_arn=firehose_role.role_arn,
+                    prefix="customer-activity/",
+                    buffering_hints=(
+                        firehose.CfnDeliveryStream.BufferingHintsProperty(
+                            size_in_m_bs=5,
+                            interval_in_seconds=300,
+                        )
+                    ),
+                    compression_format="GZIP",
+                )
+            ),
         )
 
         # --------------------------------------------------
@@ -430,6 +480,9 @@ class ProductApiStack(Stack):
                 "INVENTORY_ALERTS_TOPIC_ARN": (
                     inventory_alerts_topic.topic_arn
                 ),
+                "CUSTOMER_ACTIVITY_STREAM_NAME": (
+                    customer_activity_stream.ref
+                ),
             },
         )
 
@@ -443,6 +496,20 @@ class ProductApiStack(Stack):
                 order_processing_queue,
                 batch_size=1,
                 report_batch_item_failures=False,
+            )
+        )
+
+        # Allow OrderProcessor to send customer activity
+        # records directly to Kinesis Data Firehose.
+        self.order_processor.add_to_role_policy(
+            aws_iam.PolicyStatement(
+                actions=[
+                    "firehose:PutRecord",
+                    "firehose:PutRecordBatch",
+                ],
+                resources=[
+                    customer_activity_stream.attr_arn,
+                ],
             )
         )
 
@@ -550,11 +617,21 @@ class ProductApiStack(Stack):
         # 17. DYNAMODB PERMISSIONS
         # --------------------------------------------------
 
-        products_table.grant_read_data(self.get_product)
-        products_table.grant_read_data(self.query_products)
+        products_table.grant_read_data(
+            self.get_product
+        )
 
-        products_table.grant_read_write_data(self.insert_product)
-        products_table.grant_read_write_data(self.update_product)
+        products_table.grant_read_data(
+            self.query_products
+        )
+
+        products_table.grant_read_write_data(
+            self.insert_product
+        )
+
+        products_table.grant_read_write_data(
+            self.update_product
+        )
 
         products_table.grant_write_data(
             self.update_product_images
@@ -596,7 +673,9 @@ class ProductApiStack(Stack):
         # 19. S3 PERMISSIONS
         # --------------------------------------------------
 
-        product_images_bucket.grant_read(self.get_product)
+        product_images_bucket.grant_read(
+            self.get_product
+        )
 
         product_images_bucket.grant_read_write(
             self.insert_product
@@ -629,7 +708,9 @@ class ProductApiStack(Stack):
 
         self.queue_monitor.add_to_role_policy(
             aws_iam.PolicyStatement(
-                actions=["cloudwatch:GetMetricStatistics"],
+                actions=[
+                    "cloudwatch:GetMetricStatistics"
+                ],
                 resources=["*"],
             )
         )
@@ -648,7 +729,9 @@ class ProductApiStack(Stack):
         )
 
         monitoring_schedule.add_target(
-            targets.LambdaFunction(self.queue_monitor)
+            targets.LambdaFunction(
+                self.queue_monitor
+            )
         )
 
         # Monitor inventory every 15 minutes
@@ -661,7 +744,9 @@ class ProductApiStack(Stack):
         )
 
         inventory_monitor_schedule.add_target(
-            targets.LambdaFunction(self.inventory_monitor)
+            targets.LambdaFunction(
+                self.inventory_monitor
+            )
         )
 
         # --------------------------------------------------
@@ -696,18 +781,24 @@ class ProductApiStack(Stack):
         # GET /products
         products.add_method(
             "GET",
-            apigw.LambdaIntegration(self.query_products),
+            apigw.LambdaIntegration(
+                self.query_products
+            ),
         )
 
         # POST /products
         products.add_method(
             "POST",
-            apigw.LambdaIntegration(self.insert_product),
+            apigw.LambdaIntegration(
+                self.insert_product
+            ),
         )
 
         products.add_method(
             "OPTIONS",
-            apigw.LambdaIntegration(self.options),
+            apigw.LambdaIntegration(
+                self.options
+            ),
         )
 
         # /products/{id}
@@ -715,17 +806,23 @@ class ProductApiStack(Stack):
 
         product_by_id.add_method(
             "GET",
-            apigw.LambdaIntegration(self.get_product),
+            apigw.LambdaIntegration(
+                self.get_product
+            ),
         )
 
         product_by_id.add_method(
             "PUT",
-            apigw.LambdaIntegration(self.update_product),
+            apigw.LambdaIntegration(
+                self.update_product
+            ),
         )
 
         product_by_id.add_method(
             "OPTIONS",
-            apigw.LambdaIntegration(self.options),
+            apigw.LambdaIntegration(
+                self.options
+            ),
         )
 
         # /products/{id}/image
@@ -733,22 +830,30 @@ class ProductApiStack(Stack):
 
         image.add_method(
             "POST",
-            apigw.LambdaIntegration(self.upload_product_image),
+            apigw.LambdaIntegration(
+                self.upload_product_image
+            ),
         )
 
         image.add_method(
             "GET",
-            apigw.LambdaIntegration(self.get_product_image),
+            apigw.LambdaIntegration(
+                self.get_product_image
+            ),
         )
 
         image.add_method(
             "PUT",
-            apigw.LambdaIntegration(self.update_product_images),
+            apigw.LambdaIntegration(
+                self.update_product_images
+            ),
         )
 
         image.add_method(
             "OPTIONS",
-            apigw.LambdaIntegration(self.options),
+            apigw.LambdaIntegration(
+                self.options
+            ),
         )
 
         # --------------------------------------------------
@@ -771,7 +876,9 @@ class ProductApiStack(Stack):
             self,
             "OrderProcessingQueueUrl",
             value=order_processing_queue.queue_url,
-            description="SQS queue URL for background order processing",
+            description=(
+                "SQS queue URL for background order processing"
+            ),
         )
 
         CfnOutput(
@@ -793,4 +900,23 @@ class ProductApiStack(Stack):
             "ValkeyClusterPort",
             value=valkey_cluster.attr_primary_end_point_port,
             description="Valkey primary endpoint port",
+        )
+
+        CfnOutput(
+            self,
+            "CustomerActivityStreamName",
+            value=customer_activity_stream.ref,
+            description=(
+                "Kinesis Data Firehose delivery stream "
+                "for customer activity"
+            ),
+        )
+
+        CfnOutput(
+            self,
+            "CustomerActivityBucketName",
+            value=customer_activity_bucket.bucket_name,
+            description=(
+                "S3 bucket containing customer activity data"
+            ),
         )
