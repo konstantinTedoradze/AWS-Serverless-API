@@ -67,6 +67,77 @@ class ProductApiStack(Stack):
             "Allow Lambda to access Valkey",
         )
 
+
+        
+        # 5. Create an IAM role for the EC2 instance
+        # This allows us to connect through AWS Systems Manager.
+        ec2_role = aws_iam.Role(
+            self,
+            "ProductApiEc2Role",
+            assumed_by=aws_iam.ServicePrincipal("ec2.amazonaws.com"),
+            managed_policies=[
+                aws_iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonSSMManagedInstanceCore"
+                )
+            ],
+        )
+
+        # 6. Create a security group for EC2
+        ec2_security_group = aws_ec2.SecurityGroup(
+            self,
+            "ProductApiEc2SecurityGroup",
+            vpc=vpc,
+            description="Security group for Product API EC2 instance",
+            allow_all_outbound=True,
+        )
+
+        # No inbound SSH rule is required.
+        # We will connect through AWS Systems Manager (SSM).
+
+        # 7. Define EC2 User Data commands
+        user_data_script = aws_ec2.UserData.for_linux()
+
+        user_data_script.add_commands(
+            # Update system packages
+            "dnf update -y",
+
+            # Install Python, pip and Git
+            "dnf install -y python3 python3-pip git",
+
+            # Create application directory
+            "mkdir -p /home/ec2-user/app",
+
+            # Create Python virtual environment
+            "python3 -m venv /home/ec2-user/app/venv",
+
+            # Upgrade pip inside the virtual environment
+            "/home/ec2-user/app/venv/bin/pip install --upgrade pip",
+
+            # Install application dependencies
+            "/home/ec2-user/app/venv/bin/pip install flask gunicorn boto3",
+
+            # Set directory ownership
+            "chown -R ec2-user:ec2-user /home/ec2-user/app",
+        )
+
+
+        # 8. Create EC2 instance
+        self.product_api_ec2 = aws_ec2.Instance(
+            self,
+            "ProductApiEC2Instance",
+            instance_type=aws_ec2.InstanceType("t3.micro"),
+            machine_image=aws_ec2.MachineImage.latest_amazon_linux2023(),
+            vpc=vpc,
+            vpc_subnets=aws_ec2.SubnetSelection(
+                subnet_type=aws_ec2.SubnetType.PRIVATE_WITH_EGRESS
+            ),
+            security_group=ec2_security_group,
+            role=ec2_role,
+            user_data=user_data_script,
+            require_imdsv2=True,
+        )
+
+
         # --------------------------------------------------
         # 2. VALKEY SUBNET GROUP AND REPLICATION GROUP
         # --------------------------------------------------
@@ -919,4 +990,18 @@ class ProductApiStack(Stack):
             description=(
                 "S3 bucket containing customer activity data"
             ),
+        )
+
+        CfnOutput(
+            self,
+            "ProductApiEC2InstanceId",
+            value=self.product_api_ec2.instance_id,
+            description="Product API EC2 instance ID",
+        )
+
+        CfnOutput(
+            self,
+            "ProductApiEC2PrivateIp",
+            value=self.product_api_ec2.instance_private_ip,
+            description="Product API EC2 private IP address",
         )
